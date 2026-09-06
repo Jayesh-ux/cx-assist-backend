@@ -11,6 +11,7 @@ the same API surface — used for dev, smoke tests, and Render's free tier.
 from __future__ import annotations
 
 import hashlib
+import uuid
 
 from app.core.config import settings
 from app.core.logging import logger
@@ -28,7 +29,11 @@ class _MemoryStore:
 
     def upsert(self, ids=None, embeddings=None, documents=None, metadatas=None):
         for i, doc in enumerate(documents or []):
-            self.docs[ids[i]] = {"text": doc, "meta": metadatas[i] if metadatas else {}}
+            self.docs[ids[i]] = {
+                "text": doc,
+                "embedding": (embeddings or [])[i] if embeddings else None,
+                "meta": metadatas[i] if metadatas else {},
+            }
 
     def get(self, where=None):
         brand = (where or {}).get("brand")
@@ -60,11 +65,26 @@ class _MemoryStore:
         brand = (where or {}).get("brand")
         vals = [v for v in self.docs.values()
                 if v["meta"].get("brand") == brand] if brand else list(self.docs.values())
-        vals = vals[: n_results or settings.top_k]
+        if not vals:
+            return {"documents": [[]], "metadatas": [[]], "distances": [[]]}
+        n = n_results or settings.top_k
+        q = (query_embeddings or [None])[0]
+        if q is None:
+            vals = vals[:n]
+        else:
+            def _sim(v):
+                e = v.get("embedding") or []
+                if not e:
+                    return 0.0
+                dot = sum(a * b for a, b in zip(q, e))
+                mq = sum(x * x for x in q) ** 0.5 or 1.0
+                me = sum(x * x for x in e) ** 0.5 or 1.0
+                return dot / (mq * me)
+            vals = sorted(vals, key=_sim, reverse=True)[:n]
         return {
             "documents": [[v["text"] for v in vals]],
             "metadatas": [[v["meta"] for v in vals]],
-            "distances": [[0.05] * len(vals)],
+            "distances": [[round(1.0 - _sim(v), 4) for v in vals]] if q is not None else [[0.05] * len(vals)],
         }
 
 
@@ -124,7 +144,7 @@ def upsert_chunks(brand: str, chunks: list[str], source: str) -> int:
     if not chunks:
         return 0
     col = _collection()
-    ids = [_doc_id(brand, source, i) for i in range(len(chunks))]
+    ids = [f"{_doc_id(brand, source, i)}-{uuid.uuid4().hex[:12]}" for i in range(len(chunks))]
     metas = [{"brand": brand, "source": source, "idx": i} for i in range(len(chunks))]
     emb = embed_texts(chunks)
     col.upsert(ids=ids, embeddings=emb, documents=chunks, metadatas=metas)
