@@ -65,20 +65,11 @@ class _MemoryStore:
         brand = (where or {}).get("brand")
         vals = [v for v in self.docs.values()
                 if v["meta"].get("brand") == brand] if brand else list(self.docs.values())
-        if not vals:
-            return {"documents": [[]], "metadatas": [[]], "distances": [[]]}
-        n = n_results or settings.top_k
-        q = (query_embeddings or [None])[0]
-        if q is None:
-            vals = vals[:n]
-        else:
-            def _sim(v):
-                return _lexical_score(q, v.get("text", ""))
-            vals = sorted(vals, key=_sim, reverse=True)[:n]
+        vals = vals[: n_results or settings.top_k]
         return {
             "documents": [[v["text"] for v in vals]],
             "metadatas": [[v["meta"] for v in vals]],
-            "distances": [[round(1.0 - _sim(v), 4) for v in vals]] if q is not None else [[0.05] * len(vals)],
+            "distances": [[0.05] * len(vals)],
         }
 
 
@@ -165,10 +156,26 @@ def delete_all_for_brand(brand: str) -> None:
 
 
 def query(brand: str, query_text: str, top_k: int | None = None, score_threshold: float | None = None) -> list[dict]:
-    """Semantic search that is ALWAYS brand-scoped via the where clause."""
+    """BRAND-scoped search. Uses ChromaDB semantic search when available, or a
+    deterministic lexical (token-overlap) ranker in the in-memory fallback."""
+    global _use_real
     k = top_k or settings.top_k
     thr = score_threshold if score_threshold is not None else settings.score_threshold
     col = _collection()
+
+    if not _use_real:
+        res = col.get(where={"brand": brand})
+        docs = res.get("documents", [])
+        metas = res.get("metadatas", [])
+        ranked = sorted(zip(docs, metas), key=lambda t: _lexical_score(query_text, t[0]), reverse=True)
+        out = []
+        for doc, meta in ranked[:k]:
+            score = _lexical_score(query_text, doc)
+            if score >= thr:
+                out.append({"text": doc, "brand": meta.get("brand"),
+                            "source": meta.get("source"), "score": round(score, 4)})
+        return out
+
     q = embed_text(query_text)
     res = col.query(query_embeddings=[q], n_results=k, where={"brand": brand})
     out: list[dict] = []
