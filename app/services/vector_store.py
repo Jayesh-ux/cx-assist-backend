@@ -11,6 +11,7 @@ the same API surface — used for dev, smoke tests, and Render's free tier.
 from __future__ import annotations
 
 import hashlib
+import re
 import uuid
 
 from app.core.config import settings
@@ -31,7 +32,6 @@ class _MemoryStore:
         for i, doc in enumerate(documents or []):
             self.docs[ids[i]] = {
                 "text": doc,
-                "embedding": (embeddings or [])[i] if embeddings else None,
                 "meta": metadatas[i] if metadatas else {},
             }
 
@@ -73,13 +73,7 @@ class _MemoryStore:
             vals = vals[:n]
         else:
             def _sim(v):
-                e = v.get("embedding") or []
-                if not e:
-                    return 0.0
-                dot = sum(a * b for a, b in zip(q, e))
-                mq = sum(x * x for x in q) ** 0.5 or 1.0
-                me = sum(x * x for x in e) ** 0.5 or 1.0
-                return dot / (mq * me)
+                return _lexical_score(q, v.get("text", ""))
             vals = sorted(vals, key=_sim, reverse=True)[:n]
         return {
             "documents": [[v["text"] for v in vals]],
@@ -190,3 +184,20 @@ def query(brand: str, query_text: str, top_k: int | None = None, score_threshold
 def _doc_id(brand: str, source: str, idx: int) -> str:
     raw = f"{brand}::{source}::{idx}"
     return hashlib.md5(raw.encode()).hexdigest()
+
+
+def _lexical_score(query_text: str, doc_text: str) -> float:
+    """Deterministic token-overlap score used by the memory fallback store.
+
+    The fallback keeps ChromaDB's API surface but ranks candidates by lexical
+    overlap (BM25-style) because the local hash embedding is not a stable
+    cosine metric; ChromaDB itself is used when available."""
+    q = re.findall(r"[a-z0-9]+", query_text.lower())
+    d = re.findall(r"[a-z0-9]+", doc_text.lower())
+    if not q:
+        return 0.0
+    dc = {}
+    for t in d:
+        dc[t] = dc.get(t, 0) + 1
+    overlap = sum(min(1, dc.get(t, 0)) for t in q)
+    return round(overlap / len(q), 4)

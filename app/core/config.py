@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     chunk_size: int = 900
     chunk_overlap: int = 120
     top_k: int = 5
-    score_threshold: float = 0.55
+    score_threshold: float = 0.30
     confidence_threshold: float = 0.60
 
     # Admin auth
