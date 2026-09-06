@@ -38,7 +38,7 @@ def stats(db: Session = Depends(get_db)):
                  .group_by(Message.status).all()}
     by_provider = {row[0]: row[1] for row in db.query(AILog.provider, func.count(AILog.id))
                    .group_by(AILog.provider).all()}
-    avg_conf = db.query(func.avg(AILog.confidence)).scalar() or 0.0
+    avg_conf = db.query(func.avg(Message.confidence)).filter(Message.role == "agent").scalar() or 0.0
     return {
         "brands": brands,
         "conversations": conversations,
