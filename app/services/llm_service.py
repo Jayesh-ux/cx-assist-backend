@@ -16,7 +16,7 @@ import httpx
 from app.core.config import settings
 from app.core.logging import logger
 
-OMNIPATH_URL = "https://omniroute.ai/v1/chat/completions"
+OMNIPATH_URL = settings.omnipath_url or "https://omniroute.ai/v1/chat/completions"
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
 
 

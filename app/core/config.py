@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     embedding_dim: int = 1536
 
     # LLM (OmniRoute + Gemini fallback)
+    omnipath_url: str = ""
     omnipath_api_key: str = ""
     gemini_api_key: str = ""
     llm_provider: str = "auto"  # auto|omniroute|gemini
