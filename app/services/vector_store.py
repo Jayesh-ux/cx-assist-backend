@@ -243,7 +243,12 @@ def _lexical_score(query_text: str, doc_text: str) -> float:
     matched = set()
     for t in q:
         if t in dc and t not in matched:
-            overlap += 1.0 + 0.15 * min(dc[t], 1)  # presence counts most
+            overlap += 1.0 + 0.25 * min(dc[t], 1)  # presence counts most
             matched.add(t)
+    # Query-phrase (bigram) bonus: reward exact multi-word phrases shared with the doc.
+    if len(q) > 1:
+        qset = set(zip(q, q[1:]))
+        dset = set(zip(d, d[1:]))
+        overlap += 0.3 * len(qset & dset)
     precision = overlap / len(q)
     return round(min(1.0, precision), 4)
