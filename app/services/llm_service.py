@@ -21,7 +21,8 @@ GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5
 
 
 def _retryable(status: int) -> bool:
-    return status in (408, 429) or status >= 500
+    # 402 = rate-limit / quota (pollinations responds 402 when throttled)
+    return status in (402, 408, 429) or status >= 500
 
 
 async def _post_with_retry(client: httpx.AsyncClient, url: str, *, params=None, json=None, headers=None,
