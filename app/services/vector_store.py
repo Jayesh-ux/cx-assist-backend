@@ -182,7 +182,9 @@ def query(brand: str, query_text: str, top_k: int | None = None, score_threshold
     for i, doc in enumerate(res.get("documents", [[]])[0]):
         meta = res.get("metadatas", [[]])[0][i]
         dist = res.get("distances", [[]])[0][i]
-        score = 1.0 - dist  # cosine distance -> similarity
+        cosine = 1.0 - dist  # cosine distance -> similarity
+        lexical = _lexical_score(query_text, doc)
+        score = max(cosine, lexical)  # blend deterministic token-overlap when it is stronger
         if score >= thr:
             out.append({"text": doc, "brand": meta.get("brand"), "source": meta.get("source"), "score": round(score, 4)})
     return out
