@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     # Embeddings
     embedding_model: str = "text-embedding-3-small"
     embedding_dim: int = 1536
+    embedding_provider: str = "local"  # local|openai
 
     # LLM (OmniRoute + Gemini fallback)
     omnipath_url: str = ""

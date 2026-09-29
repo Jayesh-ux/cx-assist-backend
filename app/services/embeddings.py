@@ -15,10 +15,15 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
     """Return dense vectors for each text.
 
     Default: a deterministic, dependency-free embedding (fast + offline).
-    Swap for a real model (e.g. text-embedding-3-small) when OMNIPATH_API_KEY set.
+    Swap for a real model (e.g. text-embedding-3-small) when EMBEDDING_PROVIDER=openai.
+    Falls back to local hashes if a remote provider is configured but fails.
     """
-    if settings.omnipath_api_key:
-        return _embed_openai(texts)
+    if settings.embedding_provider == "openai":
+        try:
+            return _embed_openai(texts)
+        except Exception:  # noqa: BLE001
+            from app.core.logging import logger
+            logger.warning("remote embedding failed; falling back to local hashing")
     return [_embed_local(t) for t in texts]
 
 
