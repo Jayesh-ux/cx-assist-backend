@@ -193,18 +193,55 @@ def _doc_id(brand: str, source: str, idx: int) -> str:
     return hashlib.md5(raw.encode()).hexdigest()
 
 
+_STOPWORDS = frozenset(
+    "a an the and or but if then else for of to in on with at by from up about into over after"
+    " i you we they he she it this that these those my your his her its our their what which who"
+    " is are was were be been being do does did done have has had can could will would shall should"
+    " may might must not no yes so very just really please thanks thank want need get got going"
+    .split()
+)
+
+
+def _tokens(text: str) -> list[str]:
+    return re.findall(r"[a-z0-9]+", text.lower())
+
+
+def _stem(word: str) -> str:
+    for suf in ("ing", "ies", "ed", "es", "er", "s"):
+        if len(word) > 4 and word.endswith(suf):
+            return word[: -len(suf)]
+    return word
+
+
+def _words(text: str) -> list[str]:
+    out = []
+    for t in _tokens(text):
+        if t not in _STOPWORDS:
+            out.append(_stem(t))
+    return out
+
+
 def _lexical_score(query_text: str, doc_text: str) -> float:
     """Deterministic token-overlap score used by the memory fallback store.
 
     The fallback keeps ChromaDB's API surface but ranks candidates by lexical
     overlap (BM25-style) because the local hash embedding is not a stable
-    cosine metric; ChromaDB itself is used when available."""
-    q = re.findall(r"[a-z0-9]+", query_text.lower())
-    d = re.findall(r"[a-z0-9]+", doc_text.lower())
+    cosine metric; ChromaDB itself is used when available.
+
+    Boosts exact/partial matches, rewards rare (non-stopword) query terms,
+    and slightly better matches term distance for multi-word phrases."""
+    q = _words(query_text)
+    d = _words(doc_text)
     if not q:
         return 0.0
     dc = {}
     for t in d:
         dc[t] = dc.get(t, 0) + 1
-    overlap = sum(min(1, dc.get(t, 0)) for t in q)
-    return round(overlap / len(q), 4)
+    overlap = 0.0
+    matched = set()
+    for t in q:
+        if t in dc and t not in matched:
+            overlap += 1.0 + 0.15 * min(dc[t], 1)  # presence counts most
+            matched.add(t)
+    precision = overlap / len(q)
+    return round(min(1.0, precision), 4)
