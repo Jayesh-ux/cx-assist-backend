@@ -1,14 +1,14 @@
 """Admin: dashboard stats, audit trail, AI logs, and a webhook receiver (optional)."""
 from __future__ import annotations
 
-import json
 import logging
 
 import httpx
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.api.deps import require_admin
 from app.core.config import settings
 from app.db.session import get_db
 from app.models.ai_log import AILog
@@ -20,12 +20,6 @@ from app.models.order import Order
 
 logger = logging.getLogger("cxassist")
 router = APIRouter()
-
-
-def require_admin(x_admin_key: str = Header(default="", alias="X-Admin-Key")):
-    if not settings.admin_api_key or x_admin_key != settings.admin_api_key:
-        raise HTTPException(403, "Invalid admin key")
-    return True
 
 
 @router.get("/stats", dependencies=[Depends(require_admin)])
