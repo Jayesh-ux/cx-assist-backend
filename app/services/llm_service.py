@@ -50,21 +50,40 @@ async def _post_with_retry(client: httpx.AsyncClient, url: str, *, params=None, 
 async def _call_omniroute(messages: list[dict], temperature: float, max_tokens: int) -> dict:
     if not settings.omnipath_api_key:
         raise RuntimeError("OMNIPATH_API_KEY not configured")
-    payload = {
-        "model": settings.llm_model,
-        "messages": messages,
-        "temperature": temperature,
-        "max_tokens": max_tokens,
-        "stream": False,
-    }
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        resp = await _post_with_retry(client, OMNIPATH_URL, json=payload,
-                                      headers={"Authorization": f"Bearer {settings.omnipath_api_key}"})
-        resp.raise_for_status()
-        data = resp.json()
-    content = data["choices"][0]["message"]["content"].strip()
-    tokens = int(data.get("usage", {}).get("total_tokens", 0))
-    return {"text": content, "provider": "omniroute", "tokens": tokens}
+    # pollinations throttles per model alias; rotate through aliases on 402
+    base_model = settings.llm_model
+    candidates = [base_model] + [m for m in ("openai", "gpt-oss-20b", "gpt-oss-120b") if m != base_model]
+    last_err: Exception | None = None
+    for model in candidates[:3]:
+        payload = {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": False,
+        }
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                resp = await _post_with_retry(client, OMNIPATH_URL, json=payload,
+                                              headers={"Authorization": f"Bearer {settings.omnipath_api_key}"})
+                resp.raise_for_status()
+                data = resp.json()
+            content = data["choices"][0]["message"]["content"].strip()
+            tokens = int(data.get("usage", {}).get("total_tokens", 0))
+            return {"text": content, "provider": "omniroute", "tokens": tokens}
+        except httpx.HTTPStatusError as exc:
+            last_err = exc
+            if exc.response.status_code == 402 and model is not candidates[-1]:
+                logger.warning("llm provider 402 on model %s; rotating to next alias", model)
+                await asyncio.sleep(1.0)
+                continue
+            raise
+        except (httpx.ConnectError, httpx.ReadError, httpx.TimeoutException) as exc:
+            last_err = exc
+            logger.warning("llm provider call failed (%s); trying next model alias", exc)
+            await asyncio.sleep(1.0)
+            continue
+    raise last_err if last_err else RuntimeError("All LLM provider rotations failed")
 
 
 async def _call_gemini(messages: list[dict], temperature: float, max_tokens: int) -> dict:
